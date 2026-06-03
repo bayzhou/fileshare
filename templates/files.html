@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+{% block title %}File Manager{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>📂 <span data-i18n="fileMgr.title">文件管理</span></h1>
+    <div style="display:flex;gap:12px;align-items:center;">
+        <button class="btn btn-outline btn-sm" onclick="loadBrowse(currentPath)" data-i18n="btn.refresh">🔄 刷新</button>
+        <button class="btn btn-outline btn-sm" onclick="showMkdir()" data-i18n="fileMgr.newDir">📁 新建目录</button>
+        <button class="btn btn-primary btn-sm" onclick="showUpload()" data-i18n="fileMgr.uploadFile">📤 上传文件</button>
+        <button class="btn btn-primary btn-sm" onclick="showFolderUpload()" data-i18n="fileMgr.uploadFolder">📁 上传文件夹</button>
+        <button class="btn btn-outline btn-sm" onclick="showDirVis()" data-i18n="fileMgr.dirVis">👁 当前目录可见范围</button>
+    </div>
+</div>
+
+<div class="batch-bar" id="batchBar" style="display:none;">
+    <span class="batch-info"><span data-i18n="fileMgr.batchSelected">已选</span> <strong id="batchCount">0</strong> <span data-i18n="fileMgr.items">项</span></span>
+    <button class="btn btn-outline btn-sm" onclick="selectAll()" data-i18n="btn.selectAll">全选</button>
+    <button class="btn btn-outline btn-sm" onclick="selectNone()" data-i18n="btn.selectNone">取消</button>
+    <button class="btn btn-primary btn-sm" onclick="showBatchVis()" data-i18n="btn.batchVis">👁 修改可见范围</button>
+    <button class="btn btn-success btn-sm" onclick="batchDownload()">📥 批量下载</button>
+    <button class="btn btn-danger btn-sm" onclick="batchDelete()" data-i18n="btn.batchDelete">🗑 批量删除</button>
+</div>
+
+<div class="breadcrumb" id="breadcrumb"></div>
+
+<div class="dir-vis-bar" id="dirVisBar" style="display:none;">
+    <span>👁 <span data-i18n="fileMgr.currentDirVis">当前目录可见范围:</span> <strong id="curDirVis">所有人</strong></span>
+</div>
+
+<div class="file-grid" id="fileGrid"></div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 data-i18n="dash.fileList">文件列表</h3>
+        <span id="fileCount" style="font-size:13px;color:var(--text-light);"></span>
+    </div>
+    <div id="fileList"></div>
+    <div class="empty-state" id="emptyState" style="display:none;">
+        <div class="icon">📂</div><h3 data-i18n="fileMgr.emptyDir">空目录</h3><p data-i18n="fileMgr.uploadHint">上传文件或创建子目录</p>
+    </div>
+</div>
+
+<div class="modal-overlay" id="mkdirModal">
+    <div class="modal" style="width:380px;">
+        <h3 data-i18n="fileMgr.newDirTitle">📁 新建目录</h3>
+        <input type="text" id="mkdirName" class="input-field" style="margin:16px 0;" data-i18n-placeholder="fileMgr.dirName" placeholder="目录名称">
+        <div class="modal-actions">
+            <button class="btn btn-outline" onclick="closeMkdir()" data-i18n="btn.cancel">取消</button>
+            <button class="btn btn-primary" onclick="doMkdir()" data-i18n="btn.create">创建</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="uploadModal">
+    <div class="modal" style="width:500px;">
+        <h3><span data-i18n="fileMgr.uploadTo">📤 上传到</span> <span id="uploadDir"></span></h3>
+        <div class="upload-area-sm" onclick="document.getElementById('fileInput').click()" id="uploadAreaSm">
+            <input type="file" id="fileInput" multiple hidden>
+            <p>📎 <span data-i18n="send.clickOrDrag">点击选择或拖拽文件</span></p>
+        </div>
+        <div id="selFiles" class="selected-files"></div>
+        <div class="form-group" style="margin-top:12px;">
+            <label class="form-label"><span data-i18n="fileMgr.encPwd">加密密码</span> <span class="label-hint" data-i18n="optional">（可选）</span></label>
+            <input type="password" id="encPwd" class="input-field" data-i18n-placeholder="optional" placeholder="留空不加密">
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-outline" onclick="closeUpload()" data-i18n="btn.cancel">取消</button>
+            <button class="btn btn-primary" onclick="doUpload()" data-i18n="btn.upload">上传</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="folderUploadModal">
+    <div class="modal" style="width:500px;">
+        <h3 data-i18n="fileMgr.folderUpload">📁 上传文件夹</h3>
+        <div class="upload-area-sm" onclick="document.getElementById('folderInput').click()" id="folderAreaSm">
+            <input type="file" id="folderInput" webkitdirectory multiple hidden>
+            <p>📁 <span data-i18n="send.clickFolder">点击选择文件夹</span></p>
+        </div>
+        <div id="folderInfo" style="margin:12px 0;font-size:14px;"></div>
+        <div class="form-group">
+            <label class="form-label" data-i18n="fileMgr.uploadToDir">上传到目录</label>
+            <input type="text" id="folderUploadDir" class="input-field" value="/">
+        </div>
+        <div class="form-group">
+            <label class="form-label" data-i18n="fileMgr.encPwd">加密密码</label>
+            <input type="password" id="folderEncPwd" class="input-field" data-i18n-placeholder="optional" placeholder="留空不加密">
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-outline" onclick="closeFolderUpload()" data-i18n="btn.cancel">取消</button>
+            <button class="btn btn-primary" onclick="doFolderUpload()" data-i18n="btn.upload">上传</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="progressModal">
+    <div class="modal" style="width:420px;text-align:center;">
+        <h3 id="progressTitle" data-i18n="fileMgr.uploading">📤 上传中</h3>
+        <div style="margin:20px 0;">
+            <div class="progress-bar"><div class="progress-fill" id="progFill" style="width:0%"></div></div>
+            <p id="progText" style="margin-top:10px;color:var(--text-light);font-size:14px;">0%</p>
+            <p id="progSpeed" style="margin-top:4px;color:var(--text-light);font-size:12px;"></p>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="visModal">
+    <div class="modal" style="width:480px;">
+        <h3 data-i18n="fileMgr.changeVis">👁 修改可见范围</h3>
+        <p style="font-size:13px;color:var(--text-light);margin-bottom:16px;"><span data-i18n="fileMgr.applyTo">将应用于所选的</span> <strong id="visTargetCount">0</strong> <span data-i18n="fileMgr.items">项</span> <span id="visTargetDetail"></span></p>
+        <div class="form-group">
+            <label class="form-label" data-i18n="visibility">可见范围</label>
+            <select id="visType" class="input-select" onchange="onVisTypeChange()">
+                <option value="all" data-i18n="allVisible">所有人可见</option>
+                <option value="users" data-i18n="specifyUsers">指定用户</option>
+                <option value="groups" data-i18n="specifyGroups">指定群组</option>
+            </select>
+        </div>
+        <div id="visUserPicker" class="picker-box" style="display:none;"><div class="picker-list" id="visUserList"></div></div>
+        <div id="visGroupPicker" class="picker-box" style="display:none;"><div class="picker-list" id="visGroupList"></div></div>
+        <div class="modal-actions">
+            <button class="btn btn-outline" onclick="closeVisModal()" data-i18n="btn.cancel">取消</button>
+            <button class="btn btn-primary" onclick="applyVisibility()" data-i18n="btn.apply">应用</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="dirVisModal">
+    <div class="modal" style="width:480px;">
+        <h3 data-i18n="fileMgr.setDirVis">👁 设置目录可见范围</h3>
+        <p style="font-size:13px;color:var(--text-light);margin-bottom:16px;"><span data-i18n="fileMgr.dirLabel">目录:</span> <strong id="dirVisPath">/</strong></p>
+        <div class="form-group">
+            <label class="form-label" data-i18n="visibility">可见范围</label>
+            <select id="dirVisType" class="input-select" onchange="onDirVisTypeChange()">
+                <option value="all" data-i18n="allVisible">所有人可见</option>
+                <option value="users" data-i18n="specifyUsers">指定用户</option>
+                <option value="groups" data-i18n="specifyGroups">指定群组</option>
+            </select>
+        </div>
+        <div id="dirVisUserPicker" class="picker-box" style="display:none;"><div class="picker-list" id="dirVisUserList"></div></div>
+        <div id="dirVisGroupPicker" class="picker-box" style="display:none;"><div class="picker-list" id="dirVisGroupList"></div></div>
+        <div class="modal-actions">
+            <button class="btn btn-outline" onclick="closeDirVisModal()" data-i18n="btn.cancel">取消</button>
+            <button class="btn btn-primary" onclick="applyDirVisibility()" data-i18n="btn.apply">应用</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CHUNK_SIZE=2*1024*1024;
+let currentPath='/',uploadFiles=[],folderFiles=[],allFiles=[],allSubdirs=[],selectedFileIds=new Set(),selectedDirPaths=new Set(),allUsers=[],allGroups=[];
+
+async function loadBrowse(path){
+    currentPath=path||'/';
+    try{const d=await apiCall(`/api/browse?path=${encodeURIComponent(currentPath)}`);
+    allFiles=d.files;allSubdirs=d.subdirs;
+    renderBreadcrumb(d.current_path);renderGrid(d.subdirs,d.files);renderList(d.files);
+    document.getElementById('fileCount').textContent=`${d.files.length} ${t('fileMgr.fileCount')} / ${d.subdirs.length} ${t('fileMgr.dirCount')}`;
+    if(d.current_visibility&&d.current_visibility!=='所有人'){document.getElementById('curDirVis').textContent=d.current_visibility;document.getElementById('dirVisBar').style.display='block';}else{document.getElementById('dirVisBar').style.display='none';}
+    selectedFileIds.clear();selectedDirPaths.clear();updateBatchBar();}catch(e){}
+}
+
+async function loadUsersAndGroups(){try{const[u,g]=await Promise.all([apiCall('/api/users'),apiCall('/api/groups')]);allUsers=u.users;allGroups=g.groups;}catch(e){}}
+
+function renderBreadcrumb(path){
+    const parts=path.split('/').filter(Boolean);
+    let html='<a href="#" onclick="loadBrowse(\'/\')">🏠 根</a>';
+    let acc='';for(const p of parts){acc+='/'+p;html+=`<span class="sep">/</span><a href="#" onclick="loadBrowse('${acc}/')">${p}</a>`;}
+    document.getElementById('breadcrumb').innerHTML=html;
+}
+
+function renderGrid(subdirs,files){
+    const g=document.getElementById('fileGrid');
+    let h=subdirs.map(sd=>{
+        const dirPath=currentPath+sd.name+'/';
+        const checked=selectedDirPaths.has(dirPath)?'checked':'';
+        return `<div class="file-item is-dir ${selectedDirPaths.has(dirPath)?'selected':''}">
+            <label class="fi-check" onclick="event.stopPropagation()"><input type="checkbox" ${checked} onchange="toggleDirSelect('${dirPath}')"></label>
+            <div onclick="loadBrowse('${dirPath}')"><div class="fi-icon">📁</div><div class="fi-name">${sd.name}</div>${sd.visibility!=='所有人'?`<div class="fi-vis">👁 ${sd.visibility}</div>`:''}</div>
+            <button class="fi-del" onclick="event.stopPropagation();deleteDir('${dirPath}','${sd.name}')" title="${t('btn.delete')}">🗑</button>
+        </div>`;
+    }).join('');
+    h+=files.map(f=>{
+        const checked=selectedFileIds.has(f.id)?'checked':'';
+        return `<div class="file-item ${selectedFileIds.has(f.id)?'selected':''}">
+            <label class="fi-check" onclick="event.stopPropagation()"><input type="checkbox" ${checked} onchange="toggleFileSelect('${f.id}')"></label>
+            <div onclick="onFileClick('${f.id}','${f.file_type}',${f.is_encrypted})"><div class="fi-icon">${f.file_type==='text'?'📝':'📄'}</div><div class="fi-name">${f.original_name}</div><div class="fi-meta">${formatSize(f.file_size)} · ${f.uploader_name}</div>${f.is_encrypted?'<span class="badge badge-encrypted">🔒</span>':''}</div></div>`;
+    }).join('');
+    g.innerHTML=h;
+    document.getElementById('emptyState').style.display=(!subdirs.length&&!files.length)?'block':'none';
+}
+
+function renderList(files){
+    if(!files.length){document.getElementById('fileList').innerHTML='';return;}
+    document.getElementById('fileList').innerHTML=files.map(f=>`<div class="file-list-item ${selectedFileIds.has(f.id)?'selected':''}">
+        <label class="fli-check"><input type="checkbox" ${selectedFileIds.has(f.id)?'checked':''} onchange="toggleFileSelect('${f.id}')"></label>
+        <span class="fli-icon">${f.file_type==='text'?'📝':'📄'}</span>
+        <div class="fli-info"><strong>${f.original_name}</strong>${f.is_encrypted?' <span class="badge badge-encrypted">🔒</span>':''}<div class="fli-meta">${formatSize(f.file_size)} · ${f.uploader_name} · ${formatTime(f.upload_time)}</div></div>
+        <div class="fli-actions"><button class="btn btn-outline btn-sm" onclick="showSingleVis('${f.id}')">👁</button><button class="btn btn-success btn-sm" onclick="download('${f.id}',${f.is_encrypted})">📥</button><button class="btn btn-danger btn-sm" onclick="del('${f.id}')">🗑</button></div></div>`).join('');
+}
+
+function toggleFileSelect(id){if(selectedFileIds.has(id))selectedFileIds.delete(id);else selectedFileIds.add(id);updateBatchBar();renderGrid(allSubdirs,allFiles);renderList(allFiles);}
+function toggleDirSelect(dp){if(selectedDirPaths.has(dp))selectedDirPaths.delete(dp);else selectedDirPaths.add(dp);updateBatchBar();renderGrid(allSubdirs,allFiles);}
+function selectAll(){allFiles.forEach(f=>selectedFileIds.add(f.id));allSubdirs.forEach(sd=>selectedDirPaths.add(currentPath+sd.name+'/'));updateBatchBar();renderGrid(allSubdirs,allFiles);renderList(allFiles);}
+function selectNone(){selectedFileIds.clear();selectedDirPaths.clear();updateBatchBar();renderGrid(allSubdirs,allFiles);renderList(allFiles);}
+function updateBatchBar(){const total=selectedFileIds.size+selectedDirPaths.size;document.getElementById('batchCount').textContent=total;document.getElementById('batchBar').style.display=total>0?'flex':'none';}
+function onFileClick(id,type,enc){if(type==='text'&&!enc)preview(id);else download(id,enc);}
+
+function showMkdir(){document.getElementById('mkdirModal').classList.add('show');document.getElementById('mkdirName').value='';document.getElementById('mkdirName').focus();}
+function closeMkdir(){document.getElementById('mkdirModal').classList.remove('show');}
+function doMkdir(){const n=document.getElementById('mkdirName').value.trim();if(!n){showToast(t('fileMgr.inputDirName'),'error');return;}closeMkdir();loadBrowse((currentPath.endsWith('/')?currentPath:currentPath+'/')+n+'/');showToast(t('fileMgr.dirCreated'));}
+
+function showUpload(){document.getElementById('uploadModal').classList.add('show');document.getElementById('uploadDir').textContent=currentPath;uploadFiles=[];document.getElementById('selFiles').innerHTML='';}
+function closeUpload(){document.getElementById('uploadModal').classList.remove('show');}
+document.getElementById('fileInput').addEventListener('change',e=>{uploadFiles=[...e.target.files];renderSel();});
+const uaSm=document.getElementById('uploadAreaSm');
+uaSm.addEventListener('dragover',e=>{e.preventDefault();uaSm.classList.add('drag-hover');});
+uaSm.addEventListener('dragleave',()=>uaSm.classList.remove('drag-hover'));
+uaSm.addEventListener('drop',e=>{e.preventDefault();uaSm.classList.remove('drag-hover');uploadFiles=[...e.dataTransfer.files];renderSel();});
+function renderSel(){document.getElementById('selFiles').innerHTML=uploadFiles.map((f,i)=>`<div class="sel-file"><span>📄 ${f.name} (${formatSize(f.size)})</span><button onclick="uploadFiles.splice(${i},1);renderSel()">✕</button></div>`).join('');}
+
+async function doUpload(){
+    if(!uploadFiles.length){showToast(t('send.selectFile'),'error');return;}
+    closeUpload();const enc=document.getElementById('encPwd').value;const total=uploadFiles.length;let ok=0,fail=0;
+    document.getElementById('progressTitle').textContent=t('fileMgr.uploading');document.getElementById('progressModal').classList.add('show');
+    for(let i=0;i<total;i++){const file=uploadFiles[i];
+    if(file.size>CHUNK_SIZE){try{await uploadLargeFile(file,currentPath,enc,(pct,speed)=>{const o=Math.round(((i+pct/100)/total)*100);document.getElementById('progFill').style.width=o+'%';document.getElementById('progText').textContent=`${file.name} - ${pct}% (${i+1}/${total})`;document.getElementById('progSpeed').textContent=speed;});ok++;}catch(e){fail++;}}
+    else{const fd=new FormData();fd.append('file',file);fd.append('file_type','file');fd.append('upload_dir',currentPath);fd.append('visible_to','all');fd.append('encrypt_password',enc);try{const r=await fetch('/api/files/upload',{method:'POST',body:fd});if(r.ok)ok++;else fail++;}catch(e){fail++;}const pct=Math.round(((i+1)/total)*100);document.getElementById('progFill').style.width=pct+'%';document.getElementById('progText').textContent=`${i+1}/${total} (${pct}%)`;}}
+    document.getElementById('progFill').style.width='100%';document.getElementById('progText').textContent=t('fileMgr.uploadComplete');document.getElementById('progSpeed').textContent='';
+    setTimeout(()=>{document.getElementById('progressModal').classList.remove('show');document.getElementById('progFill').style.width='0%';showToast(fail?`${t('fileMgr.uploadDone')}: ${ok} OK, ${fail} ${t('failed')}`:`${t('fileMgr.uploadSuccess')} ${ok} ${t('fileMgr.filesUnit')}`,fail?'warning':'success');document.getElementById('encPwd').value='';loadBrowse(currentPath);},800);
+}
+
+async function uploadLargeFile(file,uploadDir,encPwd,onProgress){
+    const totalChunks=Math.ceil(file.size/CHUNK_SIZE);const initRes=await apiCall('/api/files/upload/init',{method:'POST',body:JSON.stringify({filename:file.name,total_size:file.size,total_chunks:totalChunks})});const uploadId=initRes.upload_id,startTime=Date.now();
+    for(let i=0;i<totalChunks;i++){const start=i*CHUNK_SIZE,end=Math.min(start+CHUNK_SIZE,file.size);const fd=new FormData();fd.append('upload_id',uploadId);fd.append('chunk_index',i);fd.append('chunk',file.slice(start,end));await fetch('/api/files/upload/chunk',{method:'POST',body:fd});const pct=Math.round(((i+1)/totalChunks)*100),elapsed=(Date.now()-startTime)/1000;onProgress(pct,formatSize(end/elapsed)+'/s');}
+    return apiCall('/api/files/upload/complete',{method:'POST',body:JSON.stringify({upload_id:uploadId,filename:file.name,total_chunks:totalChunks,upload_dir:uploadDir,visible_to:'all',encrypt_password:encPwd})});}
+
+function showFolderUpload(){document.getElementById('folderUploadModal').classList.add('show');document.getElementById('folderUploadDir').value=currentPath;document.getElementById('folderInfo').textContent='';document.getElementById('folderEncPwd').value='';folderFiles=[];}
+function closeFolderUpload(){document.getElementById('folderUploadModal').classList.remove('show');}
+document.getElementById('folderInput').addEventListener('change',e=>{folderFiles=[...e.target.files];const ts=folderFiles.reduce((s,f)=>s+f.size,0);document.getElementById('folderInfo').innerHTML=`📂 ${t('send.selected')} <strong>${folderFiles.length}</strong> ${t('send.files')}，${t('send.total')} <strong>${formatSize(ts)}</strong>`;});
+async function doFolderUpload(){if(!folderFiles.length){showToast(t('send.selectFolder'),'error');return;}closeFolderUpload();const uploadDir=document.getElementById('folderUploadDir').value||'/',enc=document.getElementById('folderEncPwd').value;document.getElementById('progressTitle').textContent=t('fileMgr.uploadingFolder');document.getElementById('progressModal').classList.add('show');document.getElementById('progText').textContent=`${t('fileMgr.uploadingFiles')} ${folderFiles.length} ${t('send.files')}...`;const fd=new FormData(),rp=[];for(const f of folderFiles){fd.append('files',f);rp.push(f.webkitRelativePath||f.name);}fd.append('relative_paths',rp.join('|||'));fd.append('upload_dir',uploadDir);fd.append('visible_to','all');fd.append('encrypt_password',enc);try{const r=await fetch('/api/files/upload/folder',{method:'POST',body:fd});const d=await r.json();document.getElementById('progFill').style.width='100%';document.getElementById('progText').textContent=t('fileMgr.uploadComplete');setTimeout(()=>{document.getElementById('progressModal').classList.remove('show');document.getElementById('progFill').style.width='0%';if(r.ok)showToast(d.message);else showToast(d.error||t('toast.uploadFailed'),'error');loadBrowse(uploadDir);},600);}catch(e){document.getElementById('progressModal').classList.remove('show');showToast(t('toast.uploadFailed'),'error');}}
+
+async function showSingleVis(fileId){await loadUsersAndGroups();try{const cur=await apiCall(`/api/files/visibility/${fileId}`);selectedFileIds.clear();selectedFileIds.add(fileId);selectedDirPaths.clear();openVisModal(cur);}catch(e){}}
+async function showBatchVis(){const total=selectedFileIds.size+selectedDirPaths.size;if(!total){showToast(t('fileMgr.selectFileOrDir'),'error');return;}await loadUsersAndGroups();openVisModal(null);}
+function openVisModal(current){
+    const fc=selectedFileIds.size,dc=selectedDirPaths.size,total=fc+dc;
+    document.getElementById('visTargetCount').textContent=total;
+    let detail=[];if(fc)detail.push(`${fc} ${t('file')}`);if(dc)detail.push(`${dc} ${t('directory')}`);document.getElementById('visTargetDetail').textContent=`（${detail.join('，')}）`;
+    document.getElementById('visType').value=current?current.visible_to:'all';onVisTypeChange();
+    if(current){if(current.visible_to==='users')current.users.forEach(uid=>{const cb=document.querySelector(`#visUserList input[value="${uid}"]`);if(cb)cb.checked=true;});if(current.visible_to==='groups')current.groups.forEach(gid=>{const cb=document.querySelector(`#visGroupList input[value="${gid}"]`);if(cb)cb.checked=true;});}
+    document.getElementById('visModal').classList.add('show');
+}
+function closeVisModal(){document.getElementById('visModal').classList.remove('show');}
+function onVisTypeChange(){const v=document.getElementById('visType').value;document.getElementById('visUserPicker').style.display=v==='users'?'block':'none';document.getElementById('visGroupPicker').style.display=v==='groups'?'block':'none';if(v==='users')document.getElementById('visUserList').innerHTML=allUsers.map(u=>`<label class="pick-item"><input type="checkbox" value="${u.id}" name="visPickUser"><span>${u.username}${u.is_admin?' 👑':''}</span></label>`).join('');if(v==='groups')document.getElementById('visGroupList').innerHTML=allGroups.map(g=>`<label class="pick-item"><input type="checkbox" value="${g.id}" name="visPickGroup"><span>${g.name} (${g.member_count})</span></label>`).join('');}
+async function applyVisibility(){const visType=document.getElementById('visType').value;const users=[...document.querySelectorAll('input[name="visPickUser"]:checked')].map(c=>c.value);const groups=[...document.querySelectorAll('input[name="visPickGroup"]:checked')].map(c=>c.value);if(visType==='users'&&!users.length){showToast(t('send.selectAtLeastOneUser'),'error');return;}if(visType==='groups'&&!groups.length){showToast(t('send.selectAtLeastOneGroup'),'error');return;}let ok=0;if(selectedFileIds.size){try{const d=await apiCall('/api/files/visibility',{method:'POST',body:JSON.stringify({file_ids:[...selectedFileIds],visible_to:visType,visible_users:users,visible_groups:groups})});ok+=d.updated||0;}catch(e){}}if(selectedDirPaths.size){try{const d=await apiCall('/api/dirs/visibility',{method:'POST',body:JSON.stringify({dir_paths:[...selectedDirPaths],visible_to:visType,visible_users:users,visible_groups:groups})});ok+=d.updated||0;}catch(e){}}showToast(`${t('success')}: ${ok} ${t('fileMgr.items')}`);closeVisModal();selectedFileIds.clear();selectedDirPaths.clear();updateBatchBar();loadBrowse(currentPath);}
+
+async function showDirVis(){await loadUsersAndGroups();try{const cur=await apiCall(`/api/dirs/visibility/${encodeURIComponent(currentPath)}`);document.getElementById('dirVisPath').textContent=currentPath;document.getElementById('dirVisType').value=cur.visible_to;onDirVisTypeChange();if(cur.visible_to==='users')cur.users.forEach(uid=>{const cb=document.querySelector(`#dirVisUserList input[value="${uid}"]`);if(cb)cb.checked=true;});if(cur.visible_to==='groups')cur.groups.forEach(gid=>{const cb=document.querySelector(`#dirVisGroupList input[value="${gid}"]`);if(cb)cb.checked=true;});document.getElementById('dirVisModal').classList.add('show');}catch(e){}}
+function closeDirVisModal(){document.getElementById('dirVisModal').classList.remove('show');}
+function onDirVisTypeChange(){const v=document.getElementById('dirVisType').value;document.getElementById('dirVisUserPicker').style.display=v==='users'?'block':'none';document.getElementById('dirVisGroupPicker').style.display=v==='groups'?'block':'none';if(v==='users')document.getElementById('dirVisUserList').innerHTML=allUsers.map(u=>`<label class="pick-item"><input type="checkbox" value="${u.id}" name="dirVisPickUser"><span>${u.username}${u.is_admin?' 👑':''}</span></label>`).join('');if(v==='groups')document.getElementById('dirVisGroupList').innerHTML=allGroups.map(g=>`<label class="pick-item"><input type="checkbox" value="${g.id}" name="dirVisPickGroup"><span>${g.name} (${g.member_count})</span></label>`).join('');}
+async function applyDirVisibility(){const visType=document.getElementById('dirVisType').value;const users=[...document.querySelectorAll('input[name="dirVisPickUser"]:checked')].map(c=>c.value);const groups=[...document.querySelectorAll('input[name="dirVisPickGroup"]:checked')].map(c=>c.value);if(visType==='users'&&!users.length){showToast(t('send.selectAtLeastOneUser'),'error');return;}if(visType==='groups'&&!groups.length){showToast(t('send.selectAtLeastOneGroup'),'error');return;}try{const d=await apiCall('/api/dirs/visibility',{method:'POST',body:JSON.stringify({dir_paths:[currentPath],visible_to:visType,visible_users:users,visible_groups:groups})});showToast(d.message);closeDirVisModal();loadBrowse(currentPath);}catch(e){}}
+
+async function deleteDir(dirPath,dirName){
+    if(!confirm(`${t('fileMgr.confirmDelete')} "${dirName}" ${t('fileMgr.confirmDeleteItems')}`))return;
+    try{
+        const d=await apiCall('/api/dirs/delete',{method:'POST',body:JSON.stringify({dir_path:dirPath})});
+        showToast(d.message);
+        selectedDirPaths.delete(dirPath);
+        updateBatchBar();
+        loadBrowse(currentPath);
+    }catch(e){}
+}
+
+async function batchDelete(){
+    const total=selectedFileIds.size+selectedDirPaths.size;
+    if(!total)return;
+    if(!confirm(`${t('fileMgr.confirmDelete')} ${total} ${t('fileMgr.confirmDeleteItems')}`))return;
+    let ok=0,fail=0;
+
+    // 删除文件
+    for(const fid of selectedFileIds){
+        try{const r=await fetch(`/api/files/delete/${fid}`,{method:'DELETE'});if(r.ok)ok++;else fail++;}catch(e){fail++;}
+    }
+
+    // 删除目录（使用新 API）
+    for(const dp of selectedDirPaths){
+        try{
+            const d=await apiCall('/api/dirs/delete',{method:'POST',body:JSON.stringify({dir_path:dp})});
+            ok++;
+        }catch(e){fail++;}
+    }
+
+    showToast(fail?`${t('fileMgr.deleted')}: ${ok} OK, ${fail} ${t('failed')}`:`${t('fileMgr.deleted')} ${ok} ${t('fileMgr.items')}`,fail?'warning':'success');
+    selectedFileIds.clear();selectedDirPaths.clear();updateBatchBar();loadBrowse(currentPath);
+}
+
+async function download(id,enc){let pwd='';if(enc){pwd=prompt(t('password')+':');if(pwd===null)return;}try{const r=await fetch(`/api/files/download/${id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd})});if(!r.ok){const e=await r.json();showToast(e.error,'error');return;}const ct=r.headers.get('content-type');if(ct&&ct.includes('application/json')){const d=await r.json();alert(d.content);}else{const b=await r.blob();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;const cd=r.headers.get('content-disposition');let fn='download';if(cd){const m=cd.match(/filename\*?=(?:UTF-8''|")?([^";\n]+)/i);if(m)fn=decodeURIComponent(m[1].replace(/"/g,''));}a.download=fn;a.click();URL.revokeObjectURL(u);showToast(t('toast.downloadDone'));}}catch(e){showToast(t('toast.downloadFailed'),'error');}}
+async function preview(id){try{const d=await apiCall(`/api/files/preview/${id}`);alert(d.content);}catch(e){}}
+async function del(id){if(!confirm(t('fileMgr.confirmDeleteSingle')))return;try{await apiCall(`/api/files/delete/${id}`,{method:'DELETE'});showToast(t('fileMgr.deleted'));selectedFileIds.delete(id);updateBatchBar();loadBrowse(currentPath);}catch(e){}}
+
+// 批量下载（zip，保留目录结构）
+async function batchDownload(){
+    const fileIds=[...selectedFileIds];
+    const dirPaths=[...selectedDirPaths];
+    if(!fileIds.length&&!dirPaths.length){showToast(t('fileMgr.selectFileOrDir'),'error');return;}
+    showToast(t('loading'));
+    try{
+        const resp=await fetch('/api/files/download-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_ids:fileIds,dir_paths:dirPaths})});
+        if(!resp.ok){const e=await resp.json();showToast(e.error,'error');return;}
+        const blob=await resp.blob();
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a');a.href=url;a.download='download.zip';a.click();URL.revokeObjectURL(url);
+        showToast(t('toast.downloadDone'));
+    }catch(e){showToast(t('toast.downloadFailed'),'error');}
+}
+
+// 支持从控制面板跳转：/files#/path/to/dir
+(function(){
+    const hash=decodeURIComponent(window.location.hash.slice(1));
+    if(hash&&hash.startsWith('/')){loadBrowse(hash);}
+    else{loadBrowse('/');}
+})();
+</script>
+{% endblock %}

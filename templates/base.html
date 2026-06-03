@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}文件传输{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="app-layout">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h2>📁 FileTransfer</h2>
+            </div>
+            <div class="sidebar-nav">
+                <a href="/send" class="{% if active_page == 'send' %}active{% endif %}">
+                    <span class="icon">📤</span> <span data-i18n="nav.send">发送文件</span>
+                </a>
+                <a href="/dashboard" class="{% if active_page == 'dashboard' %}active{% endif %}">
+                    <span class="icon">📊</span> <span data-i18n="nav.dashboard">控制面板</span>
+                </a>
+                <a href="/files" class="{% if active_page == 'files' %}active{% endif %}">
+                    <span class="icon">📂</span> <span data-i18n="nav.files">文件管理</span>
+                </a>
+                <a href="/groups" class="{% if active_page == 'groups' %}active{% endif %}">
+                    <span class="icon">👥</span> <span data-i18n="nav.groups">群组管理</span>
+                </a>
+                {% if session.get('is_admin') %}
+                <a href="/admin" class="{% if active_page == 'admin' %}active{% endif %}">
+                    <span class="icon">⚙️</span> <span data-i18n="nav.admin">管理后台</span>
+                </a>
+                {% endif %}
+            </div>
+            <div class="sidebar-footer">
+                <div class="lang-switch">
+                    <button class="lang-btn" data-lang="zh" onclick="setLang('zh')">中文</button>
+                    <button class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+                </div>
+                <div class="user-info">
+                    <div class="avatar">{{ session.get('username', '?')[0]|upper }}</div>
+                    <div>
+                        <div class="username">{{ session.get('username') }}</div>
+                        <div class="role">{% if session.get('is_admin') %}<span data-i18n="nav.admin_role">管理员</span>{% else %}<span data-i18n="nav.user_role">用户</span>{% endif %}</div>
+                    </div>
+                </div>
+                <button class="btn btn-outline btn-sm" style="width:100%; color:rgba(255,255,255,0.7); border-color:rgba(255,255,255,0.2);" onclick="logout()" data-i18n="nav.logout">退出</button>
+            </div>
+        </nav>
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
+    <script>
+        function showToast(msg, type='success') {
+            const c = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `<span>${type==='success'?'✅':type==='error'?'❌':'⚠️'}</span><span>${msg}</span>`;
+            c.appendChild(toast);
+            setTimeout(() => { toast.style.opacity='0'; setTimeout(()=>toast.remove(),300); }, 3000);
+        }
+        async function apiCall(url, opts={}) {
+            try {
+                const r = await fetch(url, {headers:{'Content-Type':'application/json',...opts.headers},...opts});
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error||t('toast.requestFailed'));
+                return d;
+            } catch(e) { showToast(e.message,'error'); throw e; }
+        }
+        function formatSize(b) {
+            if(!b) return '0 B';
+            const k=1024, s=['B','KB','MB','GB'];
+            const i=Math.floor(Math.log(b)/Math.log(k));
+            return (b/Math.pow(k,i)).toFixed(1)+' '+s[i];
+        }
+        function formatTime(t) { return t ? new Date(t).toLocaleString(currentLang==='zh'?'zh-CN':'en-US') : ''; }
+        async function logout() { await fetch('/api/auth/logout',{method:'POST'}); location.href='/login'; }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

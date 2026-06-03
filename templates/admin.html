@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>⚙️ <span data-i18n="admin.title">管理后台</span></h1>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon blue">👥</div><div class="stat-info"><h4 id="statUsers">0</h4><p data-i18n="admin.totalUsers">用户总数</p></div></div>
+    <div class="stat-card"><div class="stat-icon green">📄</div><div class="stat-info"><h4 id="statFiles">0</h4><p data-i18n="admin.totalFiles">文件总数</p></div></div>
+    <div class="stat-card"><div class="stat-icon orange">📤</div><div class="stat-info"><h4 id="statToday">0</h4><p data-i18n="admin.todayUpload">今日上传</p></div></div>
+    <div class="stat-card"><div class="stat-icon purple">💾</div><div class="stat-info"><h4 id="statSize">0</h4><p data-i18n="admin.storageUsed">存储占用</p></div></div>
+</div>
+
+<div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('users',this)" data-i18n="admin.userMgmt">👥 用户管理</button>
+    <button class="tab-btn" onclick="switchTab('files',this)" data-i18n="admin.fileMgmt">📄 文件管理</button>
+    <button class="tab-btn" onclick="switchTab('downloads',this)" data-i18n="admin.downloadLog">📥 下载记录</button>
+    <button class="tab-btn" onclick="switchTab('settings',this)" data-i18n="admin.settings">⚙️ 系统设置</button>
+</div>
+
+<div class="tab-content active" id="tab-users">
+    <div class="card">
+        <div class="card-header"><h3 data-i18n="admin.userList">用户列表</h3></div>
+        <div class="table-wrapper">
+            <table><thead><tr><th data-i18n="auth.username">用户名</th><th data-i18n="admin.role">角色</th><th data-i18n="admin.regTime">注册时间</th><th data-i18n="actions">操作</th></tr></thead><tbody id="usersTableBody"></tbody></table>
+        </div>
+    </div>
+</div>
+
+<div class="tab-content" id="tab-files">
+    <div class="card">
+        <div class="card-header"><h3 data-i18n="admin.recentUpload">最近上传</h3></div>
+        <div class="table-wrapper">
+            <table><thead><tr><th data-i18n="filename">文件名</th><th data-i18n="type">类型</th><th data-i18n="size">大小</th><th data-i18n="admin.uploader">上传者</th><th data-i18n="encrypted">加密</th><th data-i18n="time">时间</th><th data-i18n="actions">操作</th></tr></thead><tbody id="filesTableBody"></tbody></table>
+        </div>
+    </div>
+</div>
+
+<div class="tab-content" id="tab-downloads">
+    <div class="card">
+        <div class="card-header"><h3 data-i18n="admin.recentDownload">最近下载</h3></div>
+        <div class="table-wrapper">
+            <table><thead><tr><th data-i18n="filename">文件名</th><th data-i18n="admin.downloader">下载者</th><th data-i18n="time">时间</th></tr></thead><tbody id="downloadsTableBody"></tbody></table>
+        </div>
+    </div>
+</div>
+
+<div class="tab-content" id="tab-settings">
+    <div class="card">
+        <div class="card-header"><h3 data-i18n="admin.settings">系统配置</h3></div>
+        <div class="form-group"><label class="form-label" data-i18n="admin.maxFileSize">最大文件大小 (MB)</label><input type="number" id="setMaxSize" class="input-field" value="500"></div>
+        <div class="form-group"><label class="form-label" data-i18n="admin.allowReg">允许用户注册</label><select id="setAllowReg" class="input-select"><option value="true" data-i18n="success">是</option><option value="false" data-i18n="failed">否</option></select></div>
+        <div class="form-group"><label class="form-label" data-i18n="admin.defaultAutoDL">默认自动下载</label><select id="setAutoDL" class="input-select"><option value="false" data-i18n="failed">否</option><option value="true" data-i18n="success">是</option></select></div>
+        <button class="btn btn-primary" onclick="saveSettings()" data-i18n="btn.save">保存设置</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadAdminData(){
+    try{const[stats,users]=await Promise.all([apiCall('/api/admin/stats'),apiCall('/api/users')]);
+    document.getElementById('statUsers').textContent=stats.total_users;document.getElementById('statFiles').textContent=stats.total_files;document.getElementById('statToday').textContent=stats.today_uploads;document.getElementById('statSize').textContent=formatSize(stats.total_size);
+    renderUsersTable(users.users);renderFilesTable(stats.recent_files);renderDownloadsTable(stats.recent_downloads);}catch(e){}
+}
+
+function renderUsersTable(users){
+    document.getElementById('usersTableBody').innerHTML=users.map(u=>`<tr><td><strong>${u.username}</strong></td><td>${u.is_admin?`<span class="badge badge-admin">${t('nav.admin_role')}</span>`:t('nav.user_role')}</td><td>${formatTime(u.created_at)}</td><td>${!u.is_admin?`<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}','${u.username}')">${t('btn.delete')}</button>`:'-'}</td></tr>`).join('');
+}
+function renderFilesTable(files){
+    document.getElementById('filesTableBody').innerHTML=files.map(f=>`<tr><td>${f.original_name}</td><td><span class="badge badge-${f.file_type}">${f.file_type==='text'?t('text'):t('file')}</span></td><td>${formatSize(f.file_size)}</td><td>${f.uploader_name}</td><td>${f.is_encrypted?'🔒 '+t('success'):t('none')}</td><td>${formatTime(f.upload_time)}</td><td><button class="btn btn-danger btn-sm" onclick="adminDeleteFile('${f.id}')">${t('btn.delete')}</button></td></tr>`).join('');
+}
+function renderDownloadsTable(downloads){
+    document.getElementById('downloadsTableBody').innerHTML=downloads.map(d=>`<tr><td>${d.original_name}</td><td>${d.username}</td><td>${formatTime(d.download_time)}</td></tr>`).join('');
+}
+
+function switchTab(tab,btn){document.querySelectorAll('.tabs .tab-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));document.getElementById(`tab-${tab}`).classList.add('active');}
+
+async function deleteUser(userId,username){if(!confirm(`${t('admin.confirmDeleteUser')} "${username}"？${t('admin.cannotUndo')}`))return;try{await apiCall(`/api/admin/users/${userId}`,{method:'DELETE'});showToast(t('admin.userDeleted'));loadAdminData();}catch(e){}}
+async function adminDeleteFile(fileId){if(!confirm(t('fileMgr.confirmDeleteSingle')))return;try{await apiCall(`/api/files/delete/${fileId}`,{method:'DELETE'});showToast(t('fileMgr.deleted'));loadAdminData();}catch(e){}}
+
+async function loadSettings(){try{const d=await apiCall('/api/admin/config');document.getElementById('setMaxSize').value=d.storage?.max_file_size_mb||500;document.getElementById('setAllowReg').value=String(d.features?.allow_registration??true);document.getElementById('setAutoDL').value=String(d.features?.default_auto_download??false);}catch(e){}}
+async function saveSettings(){try{await apiCall('/api/admin/config',{method:'POST',body:JSON.stringify({storage:{max_file_size_mb:parseInt(document.getElementById('setMaxSize').value)},features:{allow_registration:document.getElementById('setAllowReg').value==='true',default_auto_download:document.getElementById('setAutoDL').value==='true'}})});showToast(t('admin.configSaved'));}catch(e){}}
+
+loadAdminData();loadSettings();
+</script>
+{% endblock %}

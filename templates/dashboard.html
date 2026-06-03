@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>📊 <span data-i18n="dash.title">控制面板</span></h1>
+    <div style="display:flex;gap:12px;align-items:center;">
+        <span id="refreshStatus" style="font-size:12px;color:var(--text-light);"></span>
+        <button class="btn btn-outline btn-sm" onclick="loadData()" data-i18n="btn.refresh">🔄 刷新</button>
+    </div>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon blue">📤</div><div class="stat-info"><h4 id="statSent">0</h4><p data-i18n="dash.sent">我发送的</p></div></div>
+    <div class="stat-card"><div class="stat-icon green">📥</div><div class="stat-info"><h4 id="statRecv">0</h4><p data-i18n="dash.received">我收到的</p></div></div>
+    <div class="stat-card"><div class="stat-icon orange">📁</div><div class="stat-info"><h4 id="statItems">0</h4><p data-i18n="dash.totalSize">总大小</p></div></div>
+    <div class="stat-card"><div class="stat-icon purple">💾</div><div class="stat-info"><h4 id="statSize">0</h4><p data-i18n="dash.totalSize">总大小</p></div></div>
+</div>
+
+<div class="dash-grid">
+    <div class="card">
+        <div class="card-header">
+            <h3>📋 <span data-i18n="dash.fileList">文件列表</span></h3>
+            <div class="tabs" style="margin:0;border:0;padding:0;">
+                <button class="tab-btn active" onclick="switchTab('visible',this)" data-i18n="dash.visibleToMe">我可见的</button>
+                <button class="tab-btn" onclick="switchTab('sent',this)" data-i18n="dash.sentByMe">我发送的</button>
+            </div>
+        </div>
+        <div id="itemList"></div>
+        <div class="empty-state" id="emptyState" style="display:none;"><div class="icon">📭</div><h3 data-i18n="noRecords">暂无记录</h3></div>
+    </div>
+
+    <div class="card config-card">
+        <div class="card-header"><h3 data-i18n="dash.userConfig">👤 用户配置</h3></div>
+        <div class="config-section">
+            <label class="config-item"><span data-i18n="dash.autoDownload">自动下载新文件</span><input type="checkbox" id="cfgAutoDL" onchange="saveConfig()"></label>
+            <label class="config-item"><span data-i18n="dash.defaultPwd">默认加密密码</span><input type="password" id="cfgDefPwd" class="input-sm" onchange="saveConfig()"></label>
+        </div>
+        <div class="card-header" style="margin-top:16px;"><h3 data-i18n="dash.myDir">📁 我的目录</h3></div>
+        <div id="myDir" style="padding:12px;font-size:14px;color:var(--text-light);"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="dlPwdModal">
+    <div class="modal" style="width:380px;">
+        <h3 data-i18n="pwdModal.title">🔒 输入解密密码</h3>
+        <input type="password" id="dlPwdInput" class="input-field" style="margin:16px 0;" data-i18n-placeholder="password" placeholder="密码">
+        <div class="modal-actions">
+            <button class="btn btn-outline" onclick="closeDlPwd()" data-i18n="btn.cancel">取消</button>
+            <button class="btn btn-primary" onclick="confirmDlPwd()" data-i18n="btn.download">下载</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentView='visible', pendingDlId=null;
+
+async function loadData(){
+    try{
+        const[itemsResp,me]=await Promise.all([apiCall(`/api/items/list?view=${currentView}`),apiCall('/api/auth/me')]);
+        const items=itemsResp.items;
+        document.getElementById('myDir').textContent=me.home_dir||'/';
+        document.getElementById('cfgAutoDL').checked=me.auto_download;
+
+        const dirs=items.filter(i=>i.type==='dir');
+        const files=items.filter(i=>i.type==='file');
+        document.getElementById('statSent').textContent=items.filter(i=>i.is_mine).length;
+        document.getElementById('statRecv').textContent=items.filter(i=>!i.is_mine).length;
+        document.getElementById('statItems').textContent=items.length;
+        document.getElementById('statSize').textContent=formatSize(items.reduce((s,i)=>s+(i.total_size||i.file_size||0),0));
+
+        renderItems(items);
+        document.getElementById('refreshStatus').textContent='⏱ '+new Date().toLocaleTimeString(currentLang==='zh'?'zh-CN':'en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    }catch(e){}
+}
+
+function renderItems(items){
+    const el=document.getElementById('itemList'),empty=document.getElementById('emptyState');
+    if(!items.length){el.innerHTML='';empty.style.display='block';return;}
+    empty.style.display='none';
+
+    el.innerHTML=items.map(item=>{
+        if(item.type==='dir'){
+            return `<div class="item-row">
+                <span class="item-icon">📁</span>
+                <div class="item-info">
+                    <strong>${item.name}</strong>
+                    <div class="item-meta">${item.file_count} ${t('fileMgr.fileCount')} · ${formatSize(item.total_size)} · ${formatTime(item.created_at)}</div>
+                    <div class="item-vis">👁 ${item.visibility}</div>
+                </div>
+                <div class="item-actions">
+                    <button class="btn btn-outline btn-sm" onclick="enterDir('${item.path}')" title="${t('nav.files')}">📂 ${t('btn.open')||'打开'}</button>
+                    <button class="btn btn-success btn-sm" onclick="downloadDir('${item.path}')" title="${t('btn.download')}">📥</button>
+                    ${item.is_mine?`<button class="btn btn-danger btn-sm" onclick="deleteDir('${item.path}','${item.name}')">🗑</button>`:''}
+                </div>
+            </div>`;
+        } else {
+            return `<div class="item-row">
+                <span class="item-icon">${item.file_type==='text'?'📝':'📄'}</span>
+                <div class="item-info">
+                    <strong>${item.name}</strong>${item.is_encrypted?' <span class="badge badge-encrypted">🔒</span>':''}
+                    <div class="item-meta">${formatSize(item.file_size)} · ${item.uploader_name} · ${formatTime(item.upload_time)}</div>
+                    <div class="item-vis">👁 ${item.visibility}</div>
+                </div>
+                <div class="item-actions">
+                    <button class="btn btn-success btn-sm" onclick="download('${item.id}',${item.is_encrypted})">📥</button>
+                    ${item.is_mine?`<button class="btn btn-danger btn-sm" onclick="delFile('${item.id}')">🗑</button>`:''}
+                </div>
+            </div>`;
+        }
+    }).join('');
+}
+
+function switchTab(v,btn){currentView=v;document.querySelectorAll('.tabs .tab-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');loadData();}
+
+function enterDir(dirPath){window.location.href='/files#'+encodeURIComponent(dirPath);}
+
+async function downloadDir(dirPath){
+    showToast(t('loading'));
+    try{
+        const resp=await fetch('/api/files/download-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dir_paths:[dirPath]})});
+        if(!resp.ok){const e=await resp.json();showToast(e.error,'error');return;}
+        const blob=await resp.blob();const url=URL.createObjectURL(blob);
+        const a=document.createElement('a');a.href=url;a.download=dirPath.split('/').filter(Boolean).pop()+'.zip';a.click();URL.revokeObjectURL(url);
+        showToast(t('toast.downloadDone'));
+    }catch(e){showToast(t('toast.downloadFailed'),'error');}
+}
+
+async function deleteDir(dirPath,dirName){
+    if(!confirm(`${t('fileMgr.confirmDelete')} "${dirName}"?`))return;
+    try{const d=await apiCall('/api/dirs/delete',{method:'POST',body:JSON.stringify({dir_path:dirPath})});showToast(d.message);loadData();}catch(e){}
+}
+
+function download(id,enc){if(enc){pendingDlId=id;document.getElementById('dlPwdModal').classList.add('show');document.getElementById('dlPwdInput').value='';document.getElementById('dlPwdInput').focus();}else doDl(id,'');}
+function closeDlPwd(){document.getElementById('dlPwdModal').classList.remove('show');pendingDlId=null;}
+function confirmDlPwd(){doDl(pendingDlId,document.getElementById('dlPwdInput').value);closeDlPwd();}
+async function doDl(id,pwd){
+    try{const r=await fetch(`/api/files/download/${id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd})});
+    if(!r.ok){const e=await r.json();showToast(e.error,'error');return;}
+    const ct=r.headers.get('content-type');if(ct&&ct.includes('application/json')){const d=await r.json();alert(d.content);}
+    else{const b=await r.blob();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;const cd=r.headers.get('content-disposition');let fn='download';if(cd){const m=cd.match(/filename\*?=(?:UTF-8''|")?([^";\n]+)/i);if(m)fn=decodeURIComponent(m[1].replace(/"/g,''));}a.download=fn;a.click();URL.revokeObjectURL(u);showToast(t('toast.downloadDone'));}}
+    catch(e){showToast(t('toast.downloadFailed'),'error');}
+}
+
+async function delFile(id){if(!confirm(t('fileMgr.confirmDeleteSingle')))return;try{await apiCall(`/api/files/delete/${id}`,{method:'DELETE'});showToast(t('fileMgr.deleted'));loadData();}catch(e){}}
+
+async function saveConfig(){
+    const auto=document.getElementById('cfgAutoDL').checked;
+    await apiCall('/api/users/me/settings',{method:'POST',body:JSON.stringify({auto_download:auto})});
+    const pwd=document.getElementById('cfgDefPwd').value;if(pwd)localStorage.setItem('ft_enc_pwd',pwd);else localStorage.removeItem('ft_enc_pwd');
+    showToast(t('dash.configSaved'));
+}
+
+loadData();setInterval(loadData,15000);
+</script>
+{% endblock %}

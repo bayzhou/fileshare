@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block title %}Send File{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>📤 <span data-i18n="send.title">发送文件</span></h1>
+    <div style="display:flex;gap:12px;align-items:center;">
+        <span id="refreshStatus" style="font-size:12px;color:var(--text-light);"></span>
+        <button class="btn btn-outline btn-sm" onclick="location.reload()" data-i18n="btn.refresh">🔄 刷新</button>
+    </div>
+</div>
+
+<div class="send-layout">
+    <div class="card send-form-card">
+        <form id="sendForm" onsubmit="doSend(event)">
+            <div class="type-switch">
+                <button type="button" class="type-btn active" onclick="switchType('file')" id="btnFile" data-i18n="send.file">📁 文件</button>
+                <button type="button" class="type-btn" onclick="switchType('folder')" id="btnFolder" data-i18n="send.folder">📂 文件夹</button>
+                <button type="button" class="type-btn" onclick="switchType('text')" id="btnText" data-i18n="send.text">📝 文本</button>
+            </div>
+
+            <div id="sectionFile" class="form-section active">
+                <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                    <input type="file" id="fileInput" multiple hidden>
+                    <div class="upload-icon">📎</div>
+                    <p class="upload-main" data-i18n="send.clickOrDrag">点击选择文件 或 拖拽到此处</p>
+                    <p class="upload-sub" id="fileInfo" data-i18n="send.autoChunk">大文件自动分片上传</p>
+                </div>
+                <div id="selectedFiles" class="selected-files"></div>
+            </div>
+
+            <div id="sectionFolder" class="form-section">
+                <div class="upload-area" id="folderArea" onclick="document.getElementById('folderInput').click()">
+                    <input type="file" id="folderInput" webkitdirectory multiple hidden>
+                    <div class="upload-icon">📁</div>
+                    <p class="upload-main" data-i18n="send.clickFolder">点击选择文件夹</p>
+                    <p class="upload-sub" id="folderInfo" data-i18n="send.keepStructure">将保留完整目录结构上传</p>
+                </div>
+                <div id="selectedFolder" class="selected-files"></div>
+            </div>
+
+            <div id="sectionText" class="form-section">
+                <div class="form-group">
+                    <input type="text" id="textTitle" class="input-title" data-i18n-placeholder="send.titleOptional" placeholder="标题（可留空）">
+                </div>
+                <div class="form-group">
+                    <textarea id="textContent" class="input-content" rows="8" data-i18n-placeholder="send.inputText" placeholder="输入文本内容..."></textarea>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" data-i18n="send.sendTo">发送给</label>
+                <select id="sendTarget" class="input-select" onchange="onTargetChange()">
+                    <option value="all" data-i18n="all">所有人</option>
+                    <option value="user" data-i18n="specifyUsers">指定用户</option>
+                    <option value="group" data-i18n="specifyGroups">指定群组</option>
+                </select>
+            </div>
+
+            <div id="userPicker" class="picker-box" style="display:none;"><div class="picker-list" id="userList"></div></div>
+            <div id="groupPicker" class="picker-box" style="display:none;"><div class="picker-list" id="groupList"></div></div>
+
+            <div class="form-group">
+                <label class="form-label"><span data-i18n="send.encPassword">加密密码</span> <span class="label-hint" data-i18n="send.encHint">（可选，接收方需输入密码下载）</span></label>
+                <div class="password-row">
+                    <input type="password" id="encryptPwd" class="input-field" data-i18n-placeholder="optional" placeholder="留空则不加密">
+                    <label class="save-pwd-label"><input type="checkbox" id="savePwd"> <span data-i18n="send.rememberPwd">记住密码</span></label>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" data-i18n="send.storageDir">存储目录</label>
+                <input type="text" id="uploadDir" class="input-field" value="/" placeholder="/path/">
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-send" id="btnSend" data-i18n="btn.send">📤 发送</button>
+        </form>
+    </div>
+
+    <div class="card send-history-card">
+        <div class="card-header">
+            <h3 data-i18n="send.recentSent">最近发送</h3>
+            <a href="/dashboard" class="link-more" data-i18n="send.viewAll">查看全部 →</a>
+        </div>
+        <div id="recentSent" class="recent-list"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="progressModal">
+    <div class="modal" style="width:420px;text-align:center;">
+        <h3 id="progressTitle" data-i18n="send.uploading">📤 上传中</h3>
+        <div style="margin:20px 0;">
+            <div class="progress-bar"><div class="progress-fill" id="progFill" style="width:0%"></div></div>
+            <p id="progText" style="margin-top:10px;color:var(--text-light);font-size:14px;">0%</p>
+            <p id="progSpeed" style="margin-top:4px;color:var(--text-light);font-size:12px;"></p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CHUNK_SIZE = 2 * 1024 * 1024;
+let currentUser = null, allUsers = [], allGroups = [], selectedFiles = [], selectedFolderFiles = [], currentType = 'file';
+
+async function init() {
+    try {
+        const [me, users, groups] = await Promise.all([apiCall('/api/auth/me'), apiCall('/api/users'), apiCall('/api/groups')]);
+        currentUser = me; allUsers = users.users; allGroups = groups.groups;
+        document.getElementById('uploadDir').value = me.home_dir || '/';
+        loadRecentSent(); loadSavedPwd();
+    } catch(e) {}
+}
+
+function switchType(type) {
+    currentType = type;
+    ['file','folder','text'].forEach(t => {
+        document.getElementById('btn'+t.charAt(0).toUpperCase()+t.slice(1)).classList.toggle('active', type===t);
+        document.getElementById('section'+t.charAt(0).toUpperCase()+t.slice(1)).classList.toggle('active', type===t);
+    });
+}
+
+const fileInput = document.getElementById('fileInput');
+const uploadArea = document.getElementById('uploadArea');
+fileInput.addEventListener('change', () => { selectedFiles = [...fileInput.files]; renderSelectedFiles(); });
+uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('drag-hover'); });
+uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-hover'));
+uploadArea.addEventListener('drop', e => { e.preventDefault(); uploadArea.classList.remove('drag-hover'); selectedFiles = [...e.dataTransfer.files]; renderSelectedFiles(); });
+
+function renderSelectedFiles() {
+    const el = document.getElementById('selectedFiles');
+    if (!selectedFiles.length) { el.innerHTML=''; document.getElementById('fileInfo').setAttribute('data-i18n','send.autoChunk'); document.getElementById('fileInfo').textContent=t('send.autoChunk'); return; }
+    const totalSize = selectedFiles.reduce((s,f) => s+f.size, 0);
+    el.innerHTML = selectedFiles.map((f,i) => `<div class="sel-file"><span>📄 ${f.name} (${formatSize(f.size)})</span><button type="button" onclick="selectedFiles.splice(${i},1);renderSelectedFiles()">✕</button></div>`).join('');
+    document.getElementById('fileInfo').textContent = `${t('send.selected')} ${selectedFiles.length} ${t('send.files')}，${t('send.total')} ${formatSize(totalSize)}`;
+}
+
+const folderInput = document.getElementById('folderInput');
+folderInput.addEventListener('change', () => {
+    selectedFolderFiles = [...folderInput.files];
+    const totalSize = selectedFolderFiles.reduce((s,f) => s+f.size, 0);
+    document.getElementById('selectedFolder').innerHTML = `<div class="sel-file"><span>📂 ${selectedFolderFiles.length} ${t('send.files')} (${formatSize(totalSize)})</span></div>`;
+    document.getElementById('folderInfo').textContent = `${t('send.selected')} ${selectedFolderFiles.length} ${t('send.files')}`;
+});
+
+function onTargetChange() {
+    const v = document.getElementById('sendTarget').value;
+    document.getElementById('userPicker').style.display = v==='user'?'block':'none';
+    document.getElementById('groupPicker').style.display = v==='group'?'block':'none';
+    if (v==='user') document.getElementById('userList').innerHTML = allUsers.map(u=>`<label class="pick-item"><input type="checkbox" value="${u.id}" name="pickUser"><span>${u.username}${u.is_admin?' 👑':''}</span></label>`).join('');
+    if (v==='group') document.getElementById('groupList').innerHTML = allGroups.map(g=>`<label class="pick-item"><input type="checkbox" value="${g.id}" name="pickGroup"><span>${g.name} (${g.member_count})</span></label>`).join('');
+}
+
+function loadSavedPwd() { const s=localStorage.getItem('ft_enc_pwd');if(s){document.getElementById('encryptPwd').value=s;document.getElementById('savePwd').checked=true;} }
+
+async function doSend(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btnSend');
+    btn.disabled=true; btn.textContent=t('send.sending');
+    const encPwd=document.getElementById('encryptPwd').value, target=document.getElementById('sendTarget').value, dir=document.getElementById('uploadDir').value||'/';
+    if (document.getElementById('savePwd').checked&&encPwd) localStorage.setItem('ft_enc_pwd',encPwd); else localStorage.removeItem('ft_enc_pwd');
+    let visUsers='', visGroups='';
+    if (target==='user'){visUsers=[...document.querySelectorAll('input[name="pickUser"]:checked')].map(c=>c.value).join(',');if(!visUsers){showToast(t('send.selectAtLeastOneUser'),'error');btn.disabled=false;btn.textContent=t('btn.send');return;}}
+    if (target==='group'){visGroups=[...document.querySelectorAll('input[name="pickGroup"]:checked')].map(c=>c.value).join(',');if(!visGroups){showToast(t('send.selectAtLeastOneGroup'),'error');btn.disabled=false;btn.textContent=t('btn.send');return;}}
+    let sent=0,fail=0;
+    const visTo = target==='user'?'users':target==='group'?'groups':'all';
+
+    if (currentType==='text'){
+        const content=document.getElementById('textContent').value;
+        if(!content){showToast(t('send.noText'),'error');btn.disabled=false;btn.textContent=t('btn.send');return;}
+        const fd=new FormData();fd.append('file_type','text');fd.append('text_title',document.getElementById('textTitle').value||'Untitled');fd.append('text_content',content);fd.append('upload_dir',dir);fd.append('visible_to',visTo);fd.append('visible_users',visUsers);fd.append('visible_groups',visGroups);fd.append('encrypt_password',encPwd);
+        try{const r=await fetch('/api/files/upload',{method:'POST',body:fd});if(r.ok)sent++;else fail++;}catch(e){fail++;}
+    } else if (currentType==='folder'){
+        if(!selectedFolderFiles.length){showToast(t('send.selectFolder'),'error');btn.disabled=false;btn.textContent=t('btn.send');return;}
+        const fd=new FormData(),rp=[];for(const f of selectedFolderFiles){fd.append('files',f);rp.push(f.webkitRelativePath||f.name);}
+        fd.append('relative_paths',rp.join('|||'));fd.append('upload_dir',dir);fd.append('visible_to',visTo);fd.append('visible_users',visUsers);fd.append('visible_groups',visGroups);fd.append('encrypt_password',encPwd);
+        try{const r=await fetch('/api/files/upload/folder',{method:'POST',body:fd});if(r.ok)sent++;else fail++;}catch(e){fail++;}
+    } else {
+        if(!selectedFiles.length){showToast(t('send.selectFile'),'error');btn.disabled=false;btn.textContent=t('btn.send');return;}
+        document.getElementById('progressTitle').textContent=t('send.uploading');document.getElementById('progressModal').classList.add('show');
+        for(let i=0;i<selectedFiles.length;i++){
+            const file=selectedFiles[i];
+            if(file.size>CHUNK_SIZE){try{await uploadLargeFile(file,dir,visTo,visUsers,visGroups,encPwd,(pct,speed)=>{const o=Math.round(((i+pct/100)/selectedFiles.length)*100);document.getElementById('progFill').style.width=o+'%';document.getElementById('progText').textContent=`${file.name} - ${pct}% (${i+1}/${selectedFiles.length})`;document.getElementById('progSpeed').textContent=speed;});sent++;}catch(e){fail++;}}
+            else{const fd=new FormData();fd.append('file',file);fd.append('file_type','file');fd.append('upload_dir',dir);fd.append('visible_to',visTo);fd.append('visible_users',visUsers);fd.append('visible_groups',visGroups);fd.append('encrypt_password',encPwd);try{const r=await fetch('/api/files/upload',{method:'POST',body:fd});if(r.ok)sent++;else fail++;}catch(e){fail++;}const pct=Math.round(((i+1)/selectedFiles.length)*100);document.getElementById('progFill').style.width=pct+'%';document.getElementById('progText').textContent=`${i+1}/${selectedFiles.length} (${pct}%)`;}
+        }
+        document.getElementById('progFill').style.width='100%';document.getElementById('progText').textContent=t('fileMgr.uploadComplete');document.getElementById('progSpeed').textContent='';
+        setTimeout(()=>{document.getElementById('progressModal').classList.remove('show');document.getElementById('progFill').style.width='0%';},600);
+    }
+    btn.disabled=false;btn.textContent=t('btn.send');
+    if(fail)showToast(`${t('send.sentSuccess')} ${sent} OK, ${fail} ${t('failed')}`,'warning'); else showToast(`${t('send.sentSuccess')} ${sent} ${t('send.files')}`);
+    selectedFiles=[];renderSelectedFiles();selectedFolderFiles=[];document.getElementById('selectedFolder').innerHTML='';
+    document.getElementById('textContent').value='';document.getElementById('textTitle').value='';fileInput.value='';folderInput.value='';
+    if(!document.getElementById('savePwd').checked)document.getElementById('encryptPwd').value='';
+    loadRecentSent();
+}
+
+async function uploadLargeFile(file,uploadDir,visTo,visUsers,visGroups,encPwd,onProgress){
+    const totalChunks=Math.ceil(file.size/CHUNK_SIZE);
+    const initRes=await apiCall('/api/files/upload/init',{method:'POST',body:JSON.stringify({filename:file.name,total_size:file.size,total_chunks:totalChunks})});
+    const uploadId=initRes.upload_id,startTime=Date.now();
+    for(let i=0;i<totalChunks;i++){const start=i*CHUNK_SIZE,end=Math.min(start+CHUNK_SIZE,file.size);const fd=new FormData();fd.append('upload_id',uploadId);fd.append('chunk_index',i);fd.append('chunk',file.slice(start,end));await fetch('/api/files/upload/chunk',{method:'POST',body:fd});const pct=Math.round(((i+1)/totalChunks)*100),elapsed=(Date.now()-startTime)/1000;onProgress(pct,formatSize(end/elapsed)+'/s');}
+    return apiCall('/api/files/upload/complete',{method:'POST',body:JSON.stringify({upload_id:uploadId,filename:file.name,total_chunks:totalChunks,upload_dir:uploadDir,visible_to:visTo,visible_users:visUsers,visible_groups:visGroups,encrypt_password:encPwd})});
+}
+
+async function loadRecentSent(){
+    try{const d=await apiCall('/api/files/list?view=sent&per_page=5');const el=document.getElementById('recentSent');
+    if(!d.files.length){el.innerHTML=`<div class="empty-sm">${t('noRecords')}</div>`;return;}
+    el.innerHTML=d.files.map(f=>`<div class="recent-item"><span class="ri-icon">${f.file_type==='text'?'📝':'📄'}</span><div class="ri-info"><div class="ri-name">${f.original_name}</div><div class="ri-meta">${formatSize(f.file_size)} · ${formatTime(f.upload_time)}</div></div><span class="ri-vis">${f.visibility}</span></div>`).join('');}catch(e){}
+}
+
+init();
+</script>
+{% endblock %}

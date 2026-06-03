@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Groups{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>👥 <span data-i18n="group.title">群组管理</span></h1>
+    <button class="btn btn-primary" onclick="showCreate()" data-i18n="group.newGroup">➕ 新建群组</button>
+</div>
+
+<div class="card">
+    <div id="groupList"></div>
+    <div class="empty-state" id="emptyState" style="display:none;">
+        <div class="icon">👥</div><h3 data-i18n="group.noGroups">暂无群组</h3><p data-i18n="group.createHint">点击"新建群组"开始</p>
+    </div>
+</div>
+
+<div class="modal-overlay" id="groupModal">
+    <div class="modal" style="width:480px;">
+        <h3 id="modalTitle" data-i18n="group.createTitle">➕ 新建群组</h3>
+        <input type="hidden" id="editId">
+        <div class="form-group">
+            <label class="form-label" data-i18n="group.groupName">群组名称</label>
+            <input type="text" id="gName" class="input-field" data-i18n-placeholder="group.inputName" placeholder="输入名称">
+        </div>
+        <div class="form-group">
+            <label class="form-label" data-i18n="group.description">描述</label>
+            <input type="text" id="gDesc" class="input-field" data-i18n-placeholder="group.inputDesc" placeholder="可选">
+        </div>
+        <div class="form-group">
+            <label class="form-label" data-i18n="selectMembers">添加成员</label>
+            <div class="picker-box"><div class="picker-list" id="memberPicker"></div></div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-outline" onclick="closeModal()" data-i18n="btn.cancel">取消</button>
+            <button class="btn btn-primary" onclick="saveGroup()" data-i18n="btn.save">保存</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="detailModal">
+    <div class="modal" style="width:420px;">
+        <h3 data-i18n="group.groupDetail">👥 群组详情</h3>
+        <div id="detailContent"></div>
+        <div class="modal-actions">
+            <button class="btn btn-outline" onclick="closeDetail()" data-i18n="btn.close">关闭</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allGroups=[], allUsers=[];
+
+async function load(){try{const[g,u]=await Promise.all([apiCall('/api/groups'),apiCall('/api/users')]);allGroups=g.groups;allUsers=u.users;render();}catch(e){}}
+
+function render(){
+    const el=document.getElementById('groupList'),empty=document.getElementById('emptyState');
+    if(!allGroups.length){el.innerHTML='';empty.style.display='block';return;}
+    empty.style.display='none';
+    el.innerHTML=allGroups.map(g=>`<div class="group-item">
+        <div class="gi-icon">👥</div>
+        <div class="gi-info"><strong>${g.name}</strong> ${g.is_owner?`<span class="badge badge-admin">${t('creator')}</span>`:''}<div class="gi-meta">${g.description||t('group.noDesc')} · ${g.member_count} ${t('members')} · ${t('creator')}: ${g.owner_name}</div></div>
+        <div class="gi-actions"><button class="btn btn-outline btn-sm" onclick="viewDetail('${g.id}')">👁</button>${g.is_owner?`<button class="btn btn-primary btn-sm" onclick="editGroup('${g.id}')">✏️</button><button class="btn btn-danger btn-sm" onclick="delGroup('${g.id}')">🗑</button>`:''}</div></div>`).join('');
+}
+
+function showCreate(){document.getElementById('modalTitle').textContent=t('group.createTitle');document.getElementById('modalTitle').setAttribute('data-i18n','group.createTitle');document.getElementById('editId').value='';document.getElementById('gName').value='';document.getElementById('gDesc').value='';renderPicker([]);document.getElementById('groupModal').classList.add('show');}
+function editGroup(id){const g=allGroups.find(x=>x.id===id);if(!g)return;document.getElementById('modalTitle').textContent=t('group.editTitle');document.getElementById('modalTitle').setAttribute('data-i18n','group.editTitle');document.getElementById('editId').value=id;document.getElementById('gName').value=g.name;document.getElementById('gDesc').value=g.description;renderPicker(g.members.map(m=>m.id));document.getElementById('groupModal').classList.add('show');}
+function closeModal(){document.getElementById('groupModal').classList.remove('show');}
+function renderPicker(selected){document.getElementById('memberPicker').innerHTML=allUsers.map(u=>`<label class="pick-item"><input type="checkbox" value="${u.id}" name="pickMember" ${selected.includes(u.id)?'checked':''}><span>${u.username}${u.is_admin?' 👑':''}</span></label>`).join('');}
+
+async function saveGroup(){
+    const editId=document.getElementById('editId').value,name=document.getElementById('gName').value.trim(),desc=document.getElementById('gDesc').value.trim(),members=[...document.querySelectorAll('input[name="pickMember"]:checked')].map(c=>c.value);
+    if(!name){showToast(t('group.inputGroupName'),'error');return;}
+    try{if(editId){await apiCall(`/api/groups/${editId}/update`,{method:'POST',body:JSON.stringify({name,description:desc})});await apiCall(`/api/groups/${editId}/members`,{method:'POST',body:JSON.stringify({user_ids:members})});showToast(t('group.updated'));}else{await apiCall('/api/groups/create',{method:'POST',body:JSON.stringify({name,description:desc,member_ids:members})});showToast(t('group.created'));}closeModal();load();}catch(e){}
+}
+
+async function delGroup(id){if(!confirm(t('group.confirmDeleteGroup')))return;try{await apiCall(`/api/groups/${id}`,{method:'DELETE'});showToast(t('group.deleted'));load();}catch(e){}}
+
+function viewDetail(id){
+    const g=allGroups.find(x=>x.id===id);if(!g)return;
+    document.getElementById('detailContent').innerHTML=`<h4 style="margin-bottom:8px;">${g.name}</h4><p style="color:var(--text-light);margin-bottom:16px;">${g.description||t('group.noDesc')}</p><h4 style="margin-bottom:8px;">${t('members')} (${g.members.length})</h4><div class="picker-list">${g.members.map(m=>`<div class="pick-item"><span>👤</span><span>${m.username}</span>${g.is_owner?`<button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="removeMember('${g.id}','${m.id}')">${t('group.removeMember')}</button>`:''}</div>`).join('')}</div>`;
+    document.getElementById('detailModal').classList.add('show');
+}
+function closeDetail(){document.getElementById('detailModal').classList.remove('show');}
+async function removeMember(gid,uid){if(!confirm(t('group.confirmRemove')))return;try{await apiCall(`/api/groups/${gid}/members/${uid}`,{method:'DELETE'});showToast(t('group.removed'));load();closeDetail();}catch(e){}}
+
+load();
+</script>
+{% endblock %}

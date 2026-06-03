@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - FileTransfer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="auth-page">
+        <div class="auth-card">
+            <div class="logo">📁</div>
+            <h1 data-i18n="auth.title">文件传输工具</h1>
+            <p class="subtitle" data-i18n="auth.subtitle">内网安全文件传输</p>
+
+            <div class="form-group">
+                <label data-i18n="auth.username">用户名</label>
+                <input type="text" id="username" data-i18n-placeholder="auth.inputUsername" placeholder="请输入用户名" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label data-i18n="auth.password">密码</label>
+                <input type="password" id="password" data-i18n-placeholder="auth.inputPassword" placeholder="请输入密码" autocomplete="current-password">
+            </div>
+            <button class="btn btn-primary" onclick="doLogin()" data-i18n="auth.login">登 录</button>
+            <div class="auth-footer">
+                <a href="/register" data-i18n="auth.noAccount">没有账号？立即注册</a>
+            </div>
+            <div class="lang-switch-auth">
+                <button class="lang-btn" data-lang="zh" onclick="setLang('zh')">中文</button>
+                <button class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
+    <script>
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `<span>${type === 'success' ? '✅' : '❌'}</span><span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        async function doLogin() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            if (!username || !password) { showToast(t('toast.loginFailed'), 'error'); return; }
+            try {
+                const resp = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+                const data = await resp.json();
+                if (resp.ok) { showToast(t('toast.loginSuccess')); setTimeout(() => window.location.href = '/send', 500); }
+                else { showToast(data.error || t('toast.loginFailed'), 'error'); }
+            } catch (err) { showToast(t('toast.networkError'), 'error'); }
+        }
+
+        document.getElementById('password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+    </script>
+</body>
+</html>
