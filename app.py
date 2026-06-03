@@ -164,14 +164,21 @@ def init_db():
     admin_cfg = CONFIG['admin']
     existing = conn.execute("SELECT id FROM users WHERE username=?", (admin_cfg['username'],)).fetchone()
     if not existing:
+        admin_id = str(uuid.uuid4())
         conn.execute(
             "INSERT INTO users (id, username, password_hash, is_admin) VALUES (?, ?, ?, 1)",
-            (str(uuid.uuid4()), admin_cfg['username'], bcrypt.hashpw(admin_cfg['password'].encode(), bcrypt.gensalt()).decode())
+            (admin_id, admin_cfg['username'], bcrypt.hashpw(admin_cfg['password'].encode(), bcrypt.gensalt()).decode())
+        )
+        conn.commit()
+
+        # 创建管理员目录并记录到 directories 表
+        admin_home = ensure_user_dir(admin_cfg['username'])
+        conn.execute(
+            "INSERT OR IGNORE INTO directories (id, path, owner_id) VALUES (?, ?, ?)",
+            (str(uuid.uuid4()), admin_home, admin_id)
         )
         conn.commit()
     conn.close()
-    # 创建管理员目录
-    ensure_user_dir(admin_cfg['username'])
 
 # ──────────────────────────── 辅助函数 ────────────────────────────
 
@@ -356,10 +363,18 @@ def api_register():
         (user_id, username, hash_password(password))
     )
     conn.commit()
-    conn.close()
 
-    # 创建用户专属目录
-    ensure_user_dir(username)
+    # 创建用户专属目录并记录到 directories 表
+    user_home = ensure_user_dir(username)
+    conn = get_db()
+    existing = conn.execute("SELECT id FROM directories WHERE path=?", (user_home,)).fetchone()
+    if not existing:
+        conn.execute(
+            "INSERT INTO directories (id, path, owner_id) VALUES (?, ?, ?)",
+            (str(uuid.uuid4()), user_home, user_id)
+        )
+    conn.commit()
+    conn.close()
 
     return jsonify({"message": "注册成功，请登录"})
 
@@ -400,6 +415,25 @@ def api_upload():
         upload_dir = '/' + upload_dir
 
     conn = get_db()
+
+    # 确保用户根目录存在于 directories 表
+    user_home = ensure_user_dir(user['username'])
+    existing = conn.execute("SELECT id FROM directories WHERE path=?", (user_home,)).fetchone()
+    if not existing:
+        conn.execute(
+            "INSERT INTO directories (id, path, owner_id) VALUES (?, ?, ?)",
+            (str(uuid.uuid4()), user_home, user['id'])
+        )
+
+    # 如果上传到子目录，确保该子目录也存在
+    if upload_dir != '/' and upload_dir != user_home:
+        norm_dir = upload_dir.rstrip('/') + '/'
+        existing = conn.execute("SELECT id FROM directories WHERE path=?", (norm_dir,)).fetchone()
+        if not existing:
+            conn.execute(
+                "INSERT INTO directories (id, path, owner_id) VALUES (?, ?, ?)",
+                (str(uuid.uuid4()), norm_dir, user['id'])
+            )
     file_id = str(uuid.uuid4())
     stored_name = f"{file_id}_{int(time.time())}"
 
@@ -1366,6 +1400,15 @@ def api_upload_complete():
 
     conn = get_db()
 
+    # 确保用户根目录存在
+    user_home = ensure_user_dir(user['username'])
+    existing = conn.execute("SELECT id FROM directories WHERE path=?", (user_home,)).fetchone()
+    if not existing:
+        conn.execute(
+            "INSERT INTO directories (id, path, owner_id) VALUES (?, ?, ?)",
+            (str(uuid.uuid4()), user_home, user['id'])
+        )
+
     # 读取所有分片并合并
     chunks = conn.execute(
         "SELECT chunk_data FROM upload_chunks WHERE upload_id=? ORDER BY chunk_index",
@@ -1447,6 +1490,25 @@ def api_upload_folder():
     conn = get_db()
     created = []
     folder_name = ''
+
+    # 确保用户根目录存在
+    user_home = ensure_user_dir(user['username'])
+    existing = conn.execute("SELECT id FROM directories WHERE path=?", (user_home,)).fetchone()
+    if not existing:
+        conn.execute(
+            "INSERT INTO directories (id, path, owner_id) VALUES (?, ?, ?)",
+            (str(uuid.uuid4()), user_home, user['id'])
+        )
+
+    # 确保 base_dir 也存在（如果不是根目录）
+    if base_dir != '/' and base_dir != user_home:
+        norm_base = base_dir.rstrip('/') + '/'
+        existing = conn.execute("SELECT id FROM directories WHERE path=?", (norm_base,)).fetchone()
+        if not existing:
+            conn.execute(
+                "INSERT INTO directories (id, path, owner_id) VALUES (?, ?, ?)",
+                (str(uuid.uuid4()), norm_base, user['id'])
+            )
 
     for i, f in enumerate(files):
         rel_path = relative_paths[i] if i < len(relative_paths) else f.filename
